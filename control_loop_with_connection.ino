@@ -132,14 +132,14 @@ static String mqttErrorCodeName(int errorCode);
 
 //define variables used for reading and reporting about tank levels
 int tankLevel;
-int tankThreshold = 1;
+int tankThreshold = 1; //don't run if level is lower than this
 const int tankSensorHeight = 4;  //height of sensor from bottom of tank in cm
 const int tankTriggerPin = 2;
 const int tankEchoPin = 3;
 Ultrasonic ultrasonic(2, 3);  //object used to easily read the moisture levels
 
 
-bool noZonesActive = true;  // global variable used in void loop and checkAndWater used to check that all zones aren't running to avoid running more than one zone at once
+bool noZonesActive = true;  // global variable used in  and checkAndWater used to check that all zones aren't running to avoid running more than one zone at once
 
 class WateringZone {  //object used to define each of the 7 zones of the garden
   //public constructor: defines watering zone object based off of input variables
@@ -159,58 +159,9 @@ public:
     _isWatering = false;                     // value is change to true when solenoid/pump are on
     _lowCalValue = lowCalValue;
     _highCalValue = highCalValue;
-
-    //calibration button initialization, not needed atm
-    // calButton.attach(2, INPUT);
-    // calButton.interval(50);
   }
-  // function that calibrates the moisture sensor values, and returns the moisture values on scale from 0-100
-          // int lowAndHigh() {
-          //   // _doneCalibrating = true;     //currently set to true to avoid the calibration step
-          //   // while (!_doneCalibrating) {  //continually tells user on serial monitor to press calibration button to begin the mode
-          //   //   Serial.println("Press the button to start calibrating");
-          //   //   calButton.update();
-          //   //   delay(1000);
-
-          //   //   if (calButton.fell()) {  //once the button has been pressed, prompt the user to submerge the sensor, then press the set/calibration button
-          //   //     while (!_lowValueSet) {
-          //   //       readMoisturePin();
-          //   //       Serial.println("Press the button after submerging the sensor" + String(_moistureValue));
-          //   //       calButton.update();
-          //   //       delay(1000);
-
-          //   //       if (calButton.fell()) {
-          //   //         readMoisturePin();
-          //   //         _lowValue = _moistureValue;
-          //   //         Serial.println("Low value set: " + String(_lowValue));
-          //   //         _lowValueSet = true;
-          //   //       }
-          //   //     }
-
-          //   //     while (!_highValueSet) {
-          //   //       readMoisturePin();
-          //   //       Serial.println("Press the button after drying off the sensor" + String(_moistureValue));
-          //   //       calButton.update();
-          //   //       delay(1000);
-
-          //   //       if (calButton.fell()) {
-          //   //         readMoisturePin();
-          //   //         _highValue = _moistureValue;
-          //   //         Serial.println("High value set: " + String(_highValue));
-          //   //         _highValueSet = true;
-          //   //       }
-          //   //     }
-
-          //   //     _doneCalibrating = true;
-          //   //   }
-          //   // }
-
-          //   // Use the map function to return a mapped value
-          //   readMoisturePin();
-          //   int mappedValue = map(_moistureValue, _lowValue, _highValue, 100, 0);
-          //   return mappedValue;
-          // }
-  // checks the time period between now and last time the zone was watered as well as the moisture value
+ 
+  // returns a moisture value from 0-100 that is calibrated according to the zones moisture sensor
   void readMoisturePin() {  //Can't store A4-A7 as a variable, so its necessary to analogRead by zone number
     int moistureReading;
     if (_zoneNumber == 1) {
@@ -232,25 +183,16 @@ public:
   }
 
   void checkAndWater() {
-    // int currentMillis = millis() / 1000; //current time in seconds
-    // int moistureValue; //moisture value variable
-    // //arduino nano is annoying so we can't store the analog pins a4-a7 as integers
-    // readMoisturePin();
 
-    // if (currentMillis - _lastWateringTime >= _minWateringGap) {     // if it has been long enough
-    //   if (_moistureValue < _moistureThreshold || currentMillis - _lastWateringTime >= _maxWateringGap) { //and the moisture value is below the threshold or its been long enough
-    //     digitalWrite(_zoneNumber, HIGH); //turn zone on
-    //     delay(_wateringTime); //wait the user specified amount of time
-    //     digitalWrite(_zoneNumber, LOW); //turn the pin off once the time is up
-    //     _lastWateringTime = currentMillis; //reset the time of last watering to now
-    //   }
-    // }
+    _tankLevel = ultrasonic.read() - tankSensorHeight;
     int pumpPin = 12;
-    int currentMillis = millis() / 1000;                                          //current time variable for comparison in seconds
-    readMoisturePin();                                                //update the zones current moisture value by reading sensor
-    if (currentMillis - _lastWateringTime >= _minWateringGap) {              // if it has been long enough since it was last watered and the tank isn't too low
-      if (_moistureValue < _moistureThreshold || currentMillis - _lastWateringTime >= _maxWateringGap) {  //and the moisture value is below the threshold or its been long enough
-        if (_isWatering == false) {                                                                       //conditions have been met so turn the pump on if its not already on
+    int currentMillis = millis() / 1000;  //current time variable for comparison in seconds
+    readMoisturePin();  //update the zones current moisture value by reading sensor
+    
+    //not using switch case, this structure is being used bc of large number of conditions needed to start watering
+    if (currentMillis - _lastWateringTime >= _minWateringGap) { // if it has been long enough since it was last watered
+      if (_moistureValue < _moistureThreshold || currentMillis - _lastWateringTime >= _maxWateringGap) {  //and the moisture value is below the threshold or its been too long enough
+        if (_isWatering == false && _tankLevel > tankThreshold) { //tank isn't too low and its not already watering
           _isWatering = true;
           digitalWrite(_relayPin, HIGH);
           delay(500);  //to avoid malfunction
@@ -259,7 +201,17 @@ public:
         }
       }
     }
-    if (_isWatering && millis() / 1000 - _startedWateringTime > _wateringTime) {  //turns off pump/valve if enough water has been sent
+    //need to turn off if level is too low
+    if(_tankLevel < tankThreshold){
+      digitalWrite(pumpPin, LOW);
+      delay(500);  //to avoid a malfunction
+      digitalWrite(_relayPin, LOW);
+      _lastWateringTime = millis() / 1000;  //record the most recent time the plant was watered
+      _isWatering = false;
+      noZonesActive = true;  //only one zone will work at a time, so set it to true after turning off the watering
+    }
+    //turns off pump/valve if enough water has been sent
+    if (_isWatering && millis() / 1000 - _startedWateringTime > _wateringTime) { 
       digitalWrite(pumpPin, LOW);
       delay(500);  //to avoid a malfunction
       digitalWrite(_relayPin, LOW);
@@ -326,15 +278,16 @@ public:
     zoneInfo = "Zone: " + String(_zoneNumber) + "; ";
     zoneInfo += "Moisture Value: " + String(_moistureValue);
     zoneInfo += "; Is watering: " + String(_isWatering);
-    zoneInfo += "Last Watering Time: " + String(_lastWateringTime) + "; ";
-    return zoneInfo;
-   // zoneInfo += "Relay Pin: " + String(_relayPin) + "; ";
-   // zoneInfo += "Zone is Installed: " + String(_zoneInstalled);
-   // zoneInfo += "Moisture Threshold: " + String(_moistureThreshold) + "; ";
-  //zoneInfo += "Watering Time: " + String(_wateringTime) + "; ";
-   // zoneInfo += "Min Watering Gap: " + String(_minWateringGap) + "; ";
-   // zoneInfo += "Max Watering Gap: " + String(_maxWateringGap) + "; ";
+    zoneInfo += "; Last Watering Time: " + String(_lastWateringTime) + "; ";
+    zoneInfo += "; Relay Pin: " + String(_relayPin) + "; ";
+    zoneInfo += "; Zone is Installed: " + String(_zoneInstalled);
+    zoneInfo += "; Moisture Threshold: " + String(_moistureThreshold) + "; ";
+    zoneInfo += "; Watering Time: " + String(_wateringTime) + "; ";
+    zoneInfo += "; Min Watering Gap: " + String(_minWateringGap) + "; ";
+    zoneInfo += "; Max Watering Gap: " + String(_maxWateringGap) + "; ";
    //return zoneInfo + "; Current millis in seconds: " + String(millis() / 1000);
+    return zoneInfo;
+
   }
   
   String getJSONZoneInfo() {
@@ -342,12 +295,12 @@ public:
     JSONVar zoneData; //initialize json object for this zone
 
     //add zone data with key
-    zoneData["moistureValue"] = _moistureValue;
-    zoneData["zoneNumber"] = _zoneNumber;
-    zoneData["isWatering"] = _isWatering;
-    zoneData["lastWateringTime"] = _lastWateringTime;
-    
-    return zoneData;
+    zoneData["moisture_level"] = _moistureValue;
+    zoneData["id"] = _zoneNumber;
+    zoneData["is_watering"] = _isWatering;
+    zoneData["last_watered"] = _lastWateringTime;
+    zoneData["tank_level"] = _tankLevel;
+    return JSON.stringify(zoneData);
   }
 
   // private constructor creates object with these varaibles
@@ -365,115 +318,13 @@ private:
   bool _isWatering;
   int _lowCalValue;
   int _highCalValue;
+  int _tankLevel;
 
-  //button setup
-    // bool _doneCalibrating = false;
-    // bool _lowValueSet = false;
-    // int _lowValue = 0;
-    // bool _highValueSet = false;
-    // int _highValue = 0;
-    // Bounce calButton;
 };
 
-
-// bool writeStringToLittleFS(const char* fileName, const String& data) {
-//   FILE* writeFile = fopen(fileName, "w");
-
-//   if (writeFile) {
-//     size_t bytesWritten = fwrite((const uint8_t*)data.c_str(), 1, data.length(), writeFile);
-//     fclose(writeFile);
-//     return bytesWritten == data.length();
-//   }
-
-//   return false;
-// }
-
-// String readFromLittleFS(const char* filePath) {
-//   String fileContent = "";
-
-//   FILE* readFile = fopen(filePath, "r");
-//   if (readFile) {
-//     fseek(readFile, 0, SEEK_END);
-//     long fileSize = ftell(readFile);
-//     fseek(readFile, 0, SEEK_SET);
-
-//     char* buffer = (char*)malloc(fileSize + 1);
-//     if (buffer) {
-//       fread(buffer, 1, fileSize, readFile);
-//       buffer[fileSize] = '\0';  // Correct null termination
-
-//       fclose(readFile);
-
-//       fileContent = String(buffer);
-//       free(buffer);
-//     } else {
-//       Serial.println("Failed to allocate memory");
-//     }
-//   } else {
-//     Serial.println("Failed to open file");
-//   }
-//   return fileContent;
-// }
-
-//DEFAULT VALUES
-
-// //grab stored value
-// LittleFS_MBED* myFS;
-// const char* filePath = "/internalstorage.txt";
-// //Write default values to files, will get c
-// //String messageReceived = readFromLittleFS(filePath);
-// String messageRecieved = "";
-// //now parse stored text
-// String storedZoneData[7];
-// int semiIndex;
-
-
-// String removeSpaces(String str) {
-//   str.replace(" ", "");  // Replace spaces with an empty string
-//   return str;
-// }
-// if (messageReceived == "") {
-//   messageReceived = "1, 500, 10 , 20, 30; 2, 500, 10 , 20, 30; 3, 500, 10 , 20, 30;\
-//                      4, 500, 10 , 20, 30; 5, 500, 10 , 20, 30; 6, 500, 10 , 20, 30;\
-//                      7, 500, 10 , 20, 30";
-// }
-// // Remove spaces from the received message
-// messageReceived = removeSpaces(messageReceived);
-
-// // Parse received message into storedZoneData
-// for (int i = 0; i < 7; i++) {
-//   semiIndex = messageReceived.indexOf(';');
-
-//   if (semiIndex != -1) {
-//     storedZoneData[i] = messageReceived.substring(0, semiIndex);
-//     messageReceived = messageReceived.substring(semiIndex + 1);
-//   } else {
-//     break;
-//   }
-// }
-
-// int zoneValues[7][5];
-// int commaIndex;
-
-// // Parse storedZoneData into zoneValues
-// for (int i = 0; i < 7; i++) {
-//   for (int j = 0; j < 5; j++) {
-//     commaIndex = storedZoneData[i].indexOf(",");
-
-//     if (commaIndex != -1) {
-//       String value = storedZoneData[i].substring(0, commaIndex);
-//       value.trim();  // Remove leading/trailing spaces (if any)
-//       zoneValues[i][j] = atoi(value.c_str());
-//       storedZoneData[i] = storedZoneData[i].substring(commaIndex + 1);
-//     } else {
-//       break;
-//     }
-//   }
-// }
-//should create: addUserParameters()
 //default values
-bool defInstallStatus=1;
-int defMoistureThreshold = 500;
+bool defInstallStatus=0; //when the arduino starts up, don't want to start watering potentiall empty pods
+int defMoistureThreshold = 35;
 int defWateringTime = 10;
 int defMinWateringGap = 20;
 int defMaxWateringGap = 30;
@@ -481,10 +332,7 @@ int defLowCalValue = 250;
 int defHighCalValue = 775;
 
 
-//psuedocode for eventually filling the waterzones with flash memory
-//read memory location
-// break the read memory up into 7 objects
-//set each watering zone o
+//initialize wateringzones with 
 WateringZone zoneOne = WateringZone(1, 11, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
 WateringZone zoneTwo = WateringZone(2, 10, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
 WateringZone zoneThree = WateringZone(3, 8, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
@@ -499,33 +347,7 @@ WateringZone zoneArray[7] = {zoneOne, zoneTwo, zoneThree, zoneFour, zoneFive, zo
 
 void setup() {  //code that only runs once
 
-  while (!Serial);
   Serial.begin(SERIAL_LOGGER_BAUD_RATE);
- // pinMode(LED_PIN, OUTPUT);
-
- // digitalWrite(LED_PIN, HIGH);
-
-  //code below doesn't seem to be necessary, will need to be tested-11.19.2023
-  //New code intializes iothub/mqtt if the wifi login works, and if it doesnt, try 10 times for a total of 30 seconds
-  // for(int i = 1; i < 11; i++){
-  //   connectToWiFi();
-  //   if(WiFi.status() == WL_CONNECTED){
-  //     initializeAzureIoTHubClient();
-  //     initializeMQTTClient();
-  //     connectMQTTClientToAzureIoTHub();
-  //     i=12;
-  //   }
-  //   else{
-  //     delay(3000); //wait 3 seconds between attempts
-  //     Serial.println("Attempt: " + String(i) + " of setup");
-  //   }
-  // }
-
-  //Template initialization
-  // connectToWiFi();
-  // initializeAzureIoTHubClient();
-  // initializeMQTTClient();
-  // connectMQTTClientToAzureIoTHub();
 
   connectToWiFi();
   if (WiFi.status() == WL_CONNECTED) {
@@ -542,28 +364,8 @@ void setup() {  //code that only runs once
     pinMode(i, OUTPUT);
     digitalWrite(i, LOW);
   }
-  // myFS = new LittleFS_MBED();
 
-  // if (!myFS->init()) {
-  //   Serial.println("LITTLEFS Mouhnt Failed");
-  //   return;
-  // }
 }
-
-//old code that created 7 zones
-//  for(int solenoidPin = 1; solenoidPin < 8; solenoidPin++){
-//    pinMode(solenoidPin, OUTPUT);
-//    zones[solenoidPin - 1] = WateringZone(solenoidPin, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap);
-//  }
-
-//   //zones only has one watering zone object
-//   for(int solenoidPin = 1; solenoidPin < 2; solenoidPin++){
-//   pinMode(solenoidPin, OUTPUT); //set pin mode
-//   zones[solenoidPin - 1] = WateringZone(solenoidPin, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap);
-// }
-
-//}
-
 /*
  * loop:
  * Check for connection and reconnect if necessary.
@@ -571,6 +373,10 @@ void setup() {  //code that only runs once
  */
 void loop() {
   // code that runs repeatedly until disconnected from power
+  if(!Serial){ //reconnect to serial if disconnected
+    Serial.begin(SERIAL_LOGGER_BAUD_RATE);
+  }
+
   if (WiFi.status() != WL_CONNECTED) {  //tries to connect to the cloud if not connected
     connectToWiFi();
     if(WiFi.status() == WL_CONNECTED) { // IF CONNECTION SUCCEEDS, BUT IT WAS DISCONNECTED AT SOME POINT, THIS INITIALIZES AZURE THINGS
@@ -588,38 +394,15 @@ void loop() {
         connectMQTTClientToAzureIoTHub();
       }
       sendTelemetry(); //triggers telemetryPayload to be filled with zone info, then sends it
+      for(int i = 0; i <7; i++){
+        Serial.println(zoneArray[i].getZoneInfo());
+      }
       telemetryNextSendTimeMs = millis() + IOT_CONFIG_TELEMETRY_FREQUENCY_MS;
     }
 
     // MQTT loop must be called to process Telemetry and Cloud-to-Device (C2D) messages.
     mqttClient.poll();
-    //delay(50); removed to stop interrupts from disrupting system function
   }
-
-  // Telemetry
-  //old template code
-  // if (WiFi.status() != WL_CONNECTED) 
-  //   {
-  //     connectToWiFi();
-  //   }
-
-  //   // Telemetry
-  //   if (millis() > telemetryNextSendTimeMs) 
-  //   {
-  //     // Check for MQTT Client connection to Azure IoT hub. Reconnect if needed.
-  //     if (!mqttClient.connected()) 
-  //     {
-  //       connectMQTTClientToAzureIoTHub();
-  //     }
-
-  //     sendTelemetry();
-  //     telemetryNextSendTimeMs = millis() + IOT_CONFIG_TELEMETRY_FREQUENCY_MS;
-  //   }
-
-  //   // MQTT loop must be called to process Telemetry and Cloud-to-Device (C2D) messages.
-  //   mqttClient.poll();
-  //   delay(50);
-
   //new code as of 11.15, only allows one solenoid to open at a time
   tankLevel = ultrasonic.read() - tankSensorHeight;  //updates tank level adjusting for height of sensor
 
@@ -634,14 +417,14 @@ void loop() {
       if (zoneArray[i].getIsWatering()) {
         noZonesActive = false;
         zoneArray[i].checkAndWater();  //need to check if its been long enough if the pump is currently running
-        i = 8;
+        i = 9; //break because we already know there is a petal running
       }
     }
     if (noZonesActive) {  // only runs if no zones are currently being watered
       for (int j = 0; j < 7; j++) {
         zoneArray[j].checkAndWater();        //check to see if its time to water
         if (zoneArray[j].getIsWatering()) {  //if this causes it to start watering, no need to check other zones
-          j = 9;
+          j = 9; //break because we already checked the zone and its now watering
         }
       }
     }
@@ -684,38 +467,6 @@ void connectToWiFi() {
   else {
     Serial.println("Connection Attempt Failed");
   }
-
-
-
-
-
-  //continual reconnection code
-  // int lastAttemptTime = millis() / 1000;
-  // while(lastAttemptTime - millis() > 30 && WiFi.status){ //if its been less than 20 seconds and wifi still hasn't worked yet
-  //     Serial.println("Last attempt failed, trying again: ");
-  //     WiFi.begin(IOT_CONFIG_WIFI_SSID, IOT_CONFIG_WIFI_PASSWORD);
-  //     delay(5000); //wait 5 seconds before trying again
-
-  // }
-  // DOESN'T ALLOW CODE TO FUNCTION WITHOUT WIFI
-  // while (WiFi.status() != WL_CONNECTED)
-  // {
-  //   Serial.print(".");
-  //   delay(IOT_CONFIG_WIFI_CONNECT_RETRY_MS);
-  // }
-  // Serial.println();
-
-  // Logger.Info("WiFi connected, IP address: " + String(WiFi.localIP()) + ", Strength (dBm): " + WiFi.RSSI());
-  // Logger.Info("Syncing time.");
-
-  // while (getTime() == 0)
-  // {
-  //   Serial.print(".");
-  //   delay(500);
-  // }
-  // Serial.println();
-
-  // Logger.Info("Time synced!");
 }
 
 /*
@@ -821,11 +572,12 @@ void onMessageReceived(int messageSize) {
   for (int i = 0; i < 7; i++){
     JSONVar zoneData = zonesData[i];
     //extract zone specific data
-    zoneArray[i].setZoneInstalled(zoneData["zoneInstalled"]);
-    zoneArray[i].setWateringTime(zoneData["wateringTime"]);
-    zoneArray[i].setMinWateringGap(zoneData["minWateringGap"]);
-    zoneArray[i].setMaxWateringGap(zoneData["maxWateringGap"]);
-    zoneArray[i].setMoistureThreshold(zoneData["moistureThreshold"]);
+
+    zoneArray[i].setZoneInstalled(zoneData["is_pod_active"]);
+    zoneArray[i].setWateringTime(zoneData["watering_duration"]);
+    zoneArray[i].setMinWateringGap(zoneData["min_water_gap"]);
+    zoneArray[i].setMaxWateringGap(zoneData["max_water_gap"]);
+    zoneArray[i].setMoistureThreshold(zoneData["moisture_threshold"]);
   }
   //template code
   // Logger.Info("Message received: Topic: " + mqttClient.messageTopic() + ", Length: " + messageSize);
@@ -867,21 +619,15 @@ static void sendTelemetry() {
  * it as needed.
  */
 static char* generateTelemetry() {
-  //template code:
-  //telemetryPayload =  String("{ \"msgCount\": ") + telemetrySendCount + " }"; //prints out the message count
-  //telemetrySendCount++; //upticks message count
-  //test code using wateringzone message function
 
-  //inefficient payload definition: telemetryPayload = zoneArray[0].getZoneInfo() + "\n" + zoneArray[1].getZoneInfo() + "\n" + zoneArray[2].getZoneInfo();
-  Serial.println("Tries to generate");
-  zoneInfo =  String("{ \"msgCount\": ") + telemetrySendCount + " }"; //prints out the message count
-  telemetrySendCount++;
-  Serial.println("makes it to 4 loop");
-  for(int i = 0; i < 7; i++){//fill the telemetry message with zone info
+  //fill json array with json lists of zone information
+  JSONVar zoneInfo;
+  for(int i = 0; i < 7; i++){ 
     Serial.println(zoneInfo);
-    zoneInfo = zoneInfo +  zoneArray[i].getZoneInfo() + "\n";
+    zoneInfo[i] = zoneArray[i].getJSONZoneInfo();
   }
-  telemetryPayload = zoneInfo;
+  //convert json array into usable format
+  telemetryPayload = JSON.stringify(zoneInfo);
   Serial.println((char*)telemetryPayload.c_str());
   return (char*)telemetryPayload.c_str();
 }
