@@ -2,6 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 /*--- Libraries ---*/
+//azure powershell commands: 
+// az login
+//  az iot hub monitor-events -n cg-iot-hub
+
+//include this to work with analog pins
+#include <SPI.h>
+
 // C99 libraries.
 #include <cstdbool>
 #include <cstdlib>
@@ -108,6 +115,123 @@ static String mqttErrorCodeName(int errorCode);
  * Initialization and connection of serial communication, WiFi client, Azure IoT SDK for C client, 
  * and MQTT client.
  */
+
+String message=""; // message added to communicate to cloud
+class WateringZone {
+  //public constructor: defines watering zone object based off of input variables
+public:
+  WateringZone(int zoneNumber, int moistureThreshold, int wateringTime, int minWateringGap, int maxWateringGap){
+    _zoneNumber = zoneNumber;
+    _moistureThreshold = moistureThreshold;
+    _wateringTime = wateringTime;
+    _minWateringGap = minWateringGap;
+    _maxWateringGap = maxWateringGap;
+    _lastWateringTime = 0; //default time, gets changed after watered
+    _moistureValue=1023; //default value gets changed after analog value is read
+
+
+  }
+  // checks the time period between now and last time the zone was watered as well as the moisture value
+  void checkAndWater() {
+    int currentMillis = millis() / 1000; //current time in seconds
+    int moistureValue; //moisture value variable
+    //arduino nano is annoying so we can't store the analog pins a4-a7 as integers
+      if(_zoneNumber == 1) {
+        _moistureValue = analogRead(A0);
+      } else if(_zoneNumber == 2) {
+        _moistureValue = analogRead(A1);
+      } else if(_zoneNumber == 3) {
+        _moistureValue = analogRead(A2);
+      } else if(_zoneNumber == 4) {
+        _moistureValue = analogRead(A3);
+      } else if(_zoneNumber == 5){
+       _moistureValue = analogRead(A4);
+      } else if(_zoneNumber == 6){
+        _moistureValue = analogRead(A6);
+      } else{
+        _moistureValue = analogRead(A7);
+      }
+
+    
+    if (currentMillis - _lastWateringTime >= _minWateringGap) {     // if it has been long enough 
+
+      if (_moistureValue < _moistureThreshold || currentMillis - _lastWateringTime >= _maxWateringGap) { //and the moisture value is below the threshold or its been long enough
+        digitalWrite(_zoneNumber, HIGH); //turn zone on 
+        delay(_wateringTime); //wait the user specified amount of time
+        digitalWrite(_zoneNumber, LOW); //turn the pin off once the time is up
+        _lastWateringTime = currentMillis; //reset the time of last watering to now
+      }
+    }
+  }
+
+//get and set methods for relevant zone variables
+  int getMoistureThreshold() {
+    return _moistureThreshold;
+  }
+
+  void setMoistureThreshold(int moistureThreshold) {
+    _moistureThreshold = moistureThreshold;
+  }
+
+  // Getter and setter methods for wateringTime
+  int getWateringTime() {
+    return _wateringTime;
+  }
+
+  void setWateringTime(int wateringTime) {
+    _wateringTime = wateringTime;
+  }
+
+  // Getter and setter methods for minWateringGap
+  int getMinWateringGap() {
+    return _minWateringGap;
+  }
+
+  void setMinWateringGap(int minWateringGap) {
+    _minWateringGap = minWateringGap;
+  }
+
+  // Getter and setter methods for maxWateringGap
+  int getMaxWateringGap() {
+    return _maxWateringGap;
+  }
+
+  void setMaxWateringGap(int maxWateringGap) {
+    _maxWateringGap = maxWateringGap;
+  }
+  // getting the analog moisture value
+  int getMoistureValue() {
+    return _moistureValue;
+  }
+  // zone info
+  String getZoneInfo(){
+    String zoneInfo;
+    zoneInfo = "Zone: " + String(_zoneNumber) + "; ";
+    zoneInfo += "Moisture Threshold: " + String(_moistureThreshold) + "; ";
+    zoneInfo += "Watering Time: " + String(_wateringTime) + "; ";
+    zoneInfo += "Min Watering Gap: " + String(_minWateringGap) + "; ";
+    zoneInfo += "Max Watering Gap: " + String(_maxWateringGap) + "; ";
+    zoneInfo += "Last Watering Time: " + String(_lastWateringTime) + "; ";
+    zoneInfo += "Moisture Value: " + String(_moistureValue);
+    return zoneInfo; 
+  }
+
+// private constructor creates object with these varaibles
+private: 
+  int _zoneNumber;
+  int _moistureThreshold;
+  int _wateringTime;
+  int _minWateringGap;
+  int _maxWateringGap;
+  int _lastWateringTime;
+  int _moistureValue;
+};
+
+int defMoistureThreshold = 50;
+int defWateringTime = 10;
+int defMinWateringGap = 6000;
+int defMaxWateringGap = 500;
+
 void setup() 
 {
   while (!Serial);
@@ -123,6 +247,9 @@ void setup()
 
   digitalWrite(LED_PIN, LOW);
   telemetryNextSendTimeMs = 0;
+  for(int i = 1; i++; i<8){
+    pinMode(i, OUTPUT);
+  }
 }
 
 /*
@@ -153,6 +280,39 @@ void loop()
   // MQTT loop must be called to process Telemetry and Cloud-to-Device (C2D) messages.
   mqttClient.poll();
   delay(50);
+
+  //copy and pasted from loop of control logic file
+  WateringZone zone1(1, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap);
+  WateringZone zone2(2, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap);
+  WateringZone zone3(3, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap);
+  WateringZone zone4(4, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap);
+  WateringZone zone5(5, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap);
+  WateringZone zone6(6, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap);
+  WateringZone zone7(7, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap);
+
+  // zone1.checkAndWater();
+  // zone2.checkAndWater();
+  // zone3.checkAndWater();
+  // zone4.checkAndWater();
+  // zone5.checkAndWater();
+  // zone6.checkAndWater();
+  // zone7.checkAndWater();
+
+  WateringZone zones[7]= {
+    zone1,
+    zone2,
+    zone3,
+    zone4,
+    zone5,
+    zone6,
+    zone7
+  };
+
+  for(int i = 0; i<7; i++) {
+    zones[i].checkAndWater();
+    message=message+zones[i].getZoneInfo()+"\n";
+  }
+  Serial.println(message);
 }
 
 /*-----------------------------------------------*/
@@ -322,7 +482,7 @@ static void sendTelemetry()
  */
 static char* generateTelemetry() 
 {
-  telemetryPayload =  String("{ \"msgCount\": ") + telemetrySendCount + " }";
+  telemetryPayload =  String("{ \"msgCount\": ") + telemetrySendCount + " }" + "\n+" + message;
   telemetrySendCount++;
 
   return (char*)telemetryPayload.c_str();
