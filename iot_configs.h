@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 // Wifi
-#define IOT_CONFIG_WIFI_SSID "ONEPLUS"
-#define IOT_CONFIG_WIFI_PASSWORD "rootsandwires"
+#define IOT_CONFIG_WIFI_SSID "SSID"
+#define IOT_CONFIG_WIFI_PASSWORD "pw"
 #define IOT_CONFIG_WIFI_CONNECT_RETRY_MS 10000
 
 // Azure IoT
-#define IOT_CONFIG_IOTHUB_FQDN "CapGarden.azure-devices.net" //host name of the iothub
-#define IOT_CONFIG_DEVICE_ID "Arduino" // device id
-#define IOT_CONFIG_DEVICE_KEY "2A5JDUQlwLTI+QGxO72B5JRnI86wpWn22AIoTOuWhZI=" //primary key
+#define IOT_CONFIG_IOTHUB_FQDN "hubname.azure-devices.net" //host name of the iothub
+#define IOT_CONFIG_DEVICE_ID "deviceid" // device id
+#define IOT_CONFIG_DEVICE_KEY "primarykey" //primary key
 
 // When developing for your own Arduino-based platform,
 // please follow the format '(ard;<platform>)'.
