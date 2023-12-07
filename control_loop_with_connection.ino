@@ -133,10 +133,11 @@ static String mqttErrorCodeName(int errorCode);
 //define variables used for reading and reporting about tank levels
 int tankLevel;
 int tankThreshold = 1; //don't run if level is lower than this
-const int tankSensorHeight = 4;  //height of sensor from bottom of tank in cm
+const int tankSensorHeight = 11;  //height of sensor from bottom of tank in cm
 const int tankTriggerPin = 2;
 const int tankEchoPin = 3;
 Ultrasonic ultrasonic(2, 3);  //object used to easily read the moisture levels
+int tempWaterLevel;
 
 
 bool noZonesActive = true;  // global variable used in  and checkAndWater used to check that all zones aren't running to avoid running more than one zone at once
@@ -292,15 +293,22 @@ public:
   
   String getJSONZoneInfo() {
 
-    JSONVar zoneData; //initialize json object for this zone
+    //JSONVar zoneData; //initialize json object for this zone
 
     //add zone data with key
-    zoneData["moisture_level"] = _moistureValue;
-    zoneData["id"] = _zoneNumber;
-    zoneData["is_watering"] = _isWatering;
-    zoneData["last_watered"] = _lastWateringTime;
-    zoneData["tank_level"] = _tankLevel;
-    return JSON.stringify(zoneData);
+    // zoneData["m_l"] = _moistureValue;
+    // zoneData["id"] = _zoneNumber;
+    // zoneData["is_wat"] = _isWatering;
+    // zoneData["l_wat"] = _lastWateringTime;
+    // zoneData["t_l"] = _tankLevel;
+    // return JSON.stringify(zoneData);
+    String zoneData = "";
+    zoneData += String(_zoneNumber) + ',';
+    zoneData += String(_moistureValue) + ',';
+    zoneData += String(_isWatering) + ',';
+    zoneData += String(_lastWateringTime) + ',';
+    zoneData += String(_tankLevel);
+    return zoneData;
   }
 
   // private constructor creates object with these varaibles
@@ -364,7 +372,6 @@ void setup() {  //code that only runs once
     pinMode(i, OUTPUT);
     digitalWrite(i, LOW);
   }
-
 }
 /*
  * loop:
@@ -373,6 +380,7 @@ void setup() {  //code that only runs once
  */
 void loop() {
   // code that runs repeatedly until disconnected from power
+  int tempWaterLevel = ultrasonic.read() - tankSensorHeight;
   if(!Serial){ //reconnect to serial if disconnected
     Serial.begin(SERIAL_LOGGER_BAUD_RATE);
   }
@@ -380,14 +388,15 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED) {  //tries to connect to the cloud if not connected
     connectToWiFi();
     if(WiFi.status() == WL_CONNECTED) { // IF CONNECTION SUCCEEDS, BUT IT WAS DISCONNECTED AT SOME POINT, THIS INITIALIZES AZURE THINGS
-    initializeAzureIoTHubClient();
-    initializeMQTTClient();
-    connectMQTTClientToAzureIoTHub();
+      initializeAzureIoTHubClient();
+      initializeMQTTClient();
+      connectMQTTClientToAzureIoTHub();
     }
   }
   else{ //if its already connected
-      if (millis() > telemetryNextSendTimeMs)  //if its been long enough since the last message was sent
-    {
+      if (millis() > telemetryNextSendTimeMs || abs(tankLevel - tempWaterLevel) > 1)  //if its been long enough since the last message was sent or the tank level has changed by 1cm
+      {
+      //Serial.println("time: " + String(millis()/1000) + "Tank level: " + String(tankLevel));
       // Check for MQTT Client connection to Azure IoT hub. Reconnect if needed.
       if (!mqttClient.connected())  
       {
@@ -405,8 +414,9 @@ void loop() {
   }
   //new code as of 11.15, only allows one solenoid to open at a time
   tankLevel = ultrasonic.read() - tankSensorHeight;  //updates tank level adjusting for height of sensor
+  //Serial.println("Tank level: " + String(tankLevel) + "; Time: " + String(millis()/1000));
 
-  if(tankLevel < tankThreshold){
+  if(tankLevel < tankThreshold){ //read all moisture pins if tank is too low
     for(int i = 0; i < 7; i++){
       zoneArray[i].readMoisturePin();
     }
@@ -572,7 +582,6 @@ void onMessageReceived(int messageSize) {
   for (int i = 0; i < 7; i++){
     JSONVar zoneData = zonesData[i];
     //extract zone specific data
-
     zoneArray[i].setZoneInstalled(zoneData["is_pod_active"]);
     zoneArray[i].setWateringTime(zoneData["watering_duration"]);
     zoneArray[i].setMinWateringGap(zoneData["min_water_gap"]);
@@ -621,13 +630,13 @@ static void sendTelemetry() {
 static char* generateTelemetry() {
 
   //fill json array with json lists of zone information
-  JSONVar zoneInfo;
+  String zoneInfo = "";
   for(int i = 0; i < 7; i++){ 
     Serial.println(zoneInfo);
-    zoneInfo[i] = zoneArray[i].getJSONZoneInfo();
+    zoneInfo += zoneArray[i].getJSONZoneInfo()+  ";";
   }
   //convert json array into usable format
-  telemetryPayload = JSON.stringify(zoneInfo);
+  telemetryPayload = zoneInfo;
   Serial.println((char*)telemetryPayload.c_str());
   return (char*)telemetryPayload.c_str();
 }
