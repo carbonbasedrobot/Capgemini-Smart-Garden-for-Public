@@ -1,6 +1,6 @@
 ---
 page_type: sample
-description: Connecting Arduino Nano RP2040 Connect to Azure IoT Hub using the Azure SDK for C Arduino library
+description: Capgemini Smart Garden Code Arduino code written in the completion of a two semester senior design course at the University of South Carolina. Enables user control/smart watering of 7 distinct zones through cloud communication, implementing the Azure SDK for C Arduino library
 languages:
 - c
 products:
