@@ -10,7 +10,7 @@ products:
 - azure-iot-hub
 ---
 # Capgemini Smart Garden
-The core of this project is built off of the github repo below.  To replicate this project, one will need to download the newest version of the Arduino IDE, install various Arduino libraries, create a Microsoft Azure Iot Hub device in an IoT Hub, define the newly created device key, iot hub name, and needed wifi credentials in the iot_configs.h file. 
+The core of this project is built off of the github repo: Arduino Nano RP2040 Connect and Embedded C IoT Hub Client with Azure SDK for C Arduino library.  To replicate this project, one will need to download the newest version of the Arduino IDE, install various Arduino libraries, create a Microsoft Azure Iot Hub device in an IoT Hub, define the newly created device key, iot hub name, and needed wifi credentials in the iot_configs.h file.
 # Getting started with the Arduino Nano RP2040 Connect and Embedded C IoT Hub Client with Azure SDK for C Arduino library
 
 **Total completion time**:  30 minutes
