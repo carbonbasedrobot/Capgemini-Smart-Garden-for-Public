@@ -6,9 +6,6 @@
 #include <SPI.h>
 #include <Arduino.h>
 
-//included to use flash memory as storage
-#include <LittleFS_Mbed_RP2040.h>
-
 //included to add json functionalitypj
 //#include <Arduino_JSON.h>
 
@@ -131,18 +128,50 @@ static String mqttErrorCodeName(int errorCode);
  * and MQTT client.
  */
 
+//Attempting to track tank levels through extrapolating pump activity
+  //NOTE: This code relies on the user refilling the tank completely, then restarting the system
+// double flowrate = 10; //in in^3/s
+// double maxTankVolume = 380; //pi*5.5^2 * 4 (volume calculation)
+// double extrapTankLevel = 100;
+// double tankThreshold = 10; //maximum percentage of tank level
 
+
+void updateTankLevel(int wateringTime){
+  // extrapTankLevel = extrapTankLevel - flowrate * wateringTime / maxTankVolume; //change the tank level according to the percentage of the tank assumed to be watered
+  //Serial.println("Pod turned on, assumed new tank volume" + String(extrapTankLevel)); 
+}
+
+
+//below is some code meant for using the ultrasonic sensor to read the tank level, running into random output values not seen when library is used in standalone tests
 //define variables used for reading and reporting about tank levels
-int tankLevel;
-int tankThreshold = 10;          //don't water if level is lower than this (10% of 11cm)
-const int tankSensorHeight = 8;  //height of sensor from bottom of tank in cm
-const int tankTriggerPin = 2;
-const int tankEchoPin = 3;
-UltraSonicDistanceSensor distanceSensor(2, 3);  // Initialize sensor that uses digital pins 13 and 12.
-int tempWaterLevel;
+// int tankLevel;
+// int tankThreshold = 10;          //don't water if level is lower than this (in percentage)
+// int tankSensorHeight = 11;
 
-int readTankHeight() {
-  return map(tankSensorHeight - distanceSensor.measureDistanceCm(), 0, 8, 0, 100);
+double tankLevel;
+double tankThreshold = 10;          //don't water if level is lower than this (in percentage)
+double tankSensorHeight = 11.64; //how far the tank sensor is from the bottom in CM
+
+UltraSonicDistanceSensor distanceSensor(3, 2);  // Initialize sensor that uses digital pins 13 and 12.
+double tempWaterLevel;
+double mappedValue;
+double sensorReading;
+
+double readTankHeight() { 
+  delay(50);
+  tankSensorHeight = 11.64;
+  sensorReading = distanceSensor.measureDistanceCm();
+  if(sensorReading > tankSensorHeight){
+    sensorReading = tankSensorHeight; //deal with overshooting readings
+  }
+    if(sensorReading < 3){
+    sensorReading = 3; //deal with undershooting readings
+  }
+ // sensorReading = sensorReading - 3; //shift range of values from 11.64 to 3 into 8.64 when empty and 0 when full
+
+ // sensorReading = (tankSensorHeight-3-sensorReading)/(tankSensorHeight-3)*100; //convert 8.64 when empty to 0% and and 0 when empty to 100%
+
+  return sensorReading;
 }
 
 bool noZonesActive = true;  // global variable used in  and checkAndWater used to check that all zones aren't running to avoid running more than one zone at once
@@ -162,7 +191,7 @@ public:
     _lastWateringTime = 0;                   //default time, gets changed after watered
     _moistureValue;                          //default value gets changed after analog value is read
     _startedWateringTime;                    //comparison timestamp, set to millis()/1000 when the pump is turned on
-    _isWatering = false;                     // value is change to true when solenoid/pump are on
+    _isWatering = false;                     // value is change to true when solenoid/pump are onrea
     _lowCalValue = lowCalValue;
     _highCalValue = highCalValue;
   }
@@ -186,22 +215,45 @@ public:
     } else {
       moistureReading = analogRead(A6);
     }
-    _moistureValue = map(moistureReading, _lowCalValue, _highCalValue, 100, 0);
+    //limit misbehavior from the mapping function by limiting signal values to range
+    if(moistureReading < _lowCalValue){
+      moistureReading = _lowCalValue;
+    }
+    if(moistureReading > _highCalValue){
+      moistureReading = _highCalValue;
+    }
+    //_moistureValue = map(moistureReading, _lowCalValue, _highCalValue, 100, 0);
+    _moistureValue = moistureReading;
+            // Moisture Sensor Testing 1/17
+        // Pins: Wet   Dry
+        // A0:   120   694
+        // A1:   not working
+        // A2:   400   880
+        // A3:   not working
+        // A4:   not working
+        // A5:   not working
+        // A6:   450   1023
+        // Solution: improve/redo the wiring for the moisture sensors
   }
 
   void setTankLevel() {
     _tankLevel = readTankHeight();
+    //_tankLevel = extrapTankLevel;
+  }
+
+  double getTankLevel() {
+    return readTankHeight();
   }
 
   void checkAndWater() {
 
     _tankLevel = readTankHeight();
+   // _tankLevel = extrapTankLevel;
     int pumpPin = 5;
     int currentMillis = millis() / 1000;  //current time variable for comparison in seconds
     readMoisturePin();                    //update the zones current moisture value by reading sensor
-
-    //not using switch case, this structure is being used bc of large number of conditions needed to start watering
-    if (currentMillis - _lastWateringTime >= _minWateringGap) {                                           // if it has been long enough since it was last watered
+    
+    if (currentMillis - _lastWateringTime >= _minWateringGap && _zoneInstalled) { // if it has been long enough since it was last watered and the zone has been installed by the user
       if (_moistureValue < _moistureThreshold || currentMillis - _lastWateringTime >= _maxWateringGap) {  //and the moisture value is below the threshold or its been too long enough
         if (_isWatering == false && _tankLevel > tankThreshold) {                                         //tank isn't too low and its not already watering
           _isWatering = true;
@@ -209,6 +261,11 @@ public:
           delay(500);  //to avoid malfunction
           digitalWrite(pumpPin, HIGH);
           _startedWateringTime = millis() / 1000;
+          Serial.println("zone " + String(_zoneNumber) + " was turned on");
+          //update tank level variable according to extrapolation
+          //updateTankLevel(_wateringTime);
+          //_tankLevel = extrapTankLevel;
+          noZonesActive = false;
         }
       }
     }
@@ -221,6 +278,7 @@ public:
       _lastWateringTime = millis() / 1000;  //record the most recent time the plant was watered
       _isWatering = false;
       noZonesActive = true;  //only one zone will work at a time, so set it to true after turning off the watering
+      Serial.println("Pump was turned off because the tank was too low");
     }
     //turns off pump/valve if enough water has been sent
     if (_isWatering && millis() / 1000 - _startedWateringTime > _wateringTime) {
@@ -230,6 +288,7 @@ public:
       _lastWateringTime = millis() / 1000;  //record the most recent time the plant was watered
       _isWatering = false;
       noZonesActive = true;  //only one zone will work at a time, so set it to true after turning off the watering
+      Serial.println("Finished Watering Zone " + String(_zoneNumber));
     }
   }
   //get and set methods for relevant zone variables
@@ -287,6 +346,7 @@ public:
   // zone info
   String getZoneInfo() {  //edited to only give necessary info to azure api
     String zoneInfo;
+    delay(10);
     zoneInfo = "Zone: " + String(_zoneNumber) + "; ";
     zoneInfo += "Moisture Value: " + String(_moistureValue);
     zoneInfo += "; Is watering: " + String(_isWatering);
@@ -297,22 +357,14 @@ public:
     zoneInfo += "; Watering Time: " + String(_wateringTime) + "; ";
     zoneInfo += "; Min Watering Gap: " + String(_minWateringGap) + "; ";
     zoneInfo += "; Max Watering Gap: " + String(_maxWateringGap) + "; ";
-    zoneInfo += "; Tank Level: " + String(_tankLevel);
+    zoneInfo += "; Tank Level: " + String(readTankHeight());
     //return zoneInfo + "; Current millis in seconds: " + String(millis() / 1000);
     return zoneInfo;
   }
 
   String getJSONZoneInfo() {
 
-    //JSONVar zoneData; //initialize json object for this zone
-
-    //add zone data with key
-    // zoneData["m_l"] = _moistureValue;
-    // zoneData["id"] = _zoneNumber;
-    // zoneData["is_wat"] = _isWatering;
-    // zoneData["l_wat"] = _lastWateringTime;
-    // zoneData["t_l"] = _tankLevel;
-    // return JSON.stringify(zoneData);
+    
     String zoneData = "";
     zoneData += String(_zoneNumber) + ',';
     readMoisturePin();
@@ -339,27 +391,27 @@ private:
   bool _isWatering;
   int _lowCalValue;
   int _highCalValue;
-  int _tankLevel;
+  double _tankLevel;
 };
 
 //default values
 bool defInstallStatus = 0;  //when the arduino starts up, don't want to start watering potentiall empty pods
 int defMoistureThreshold = 35;
-int defWateringTime = 2;
-int defMinWateringGap = 2;
-int defMaxWateringGap = 3;
+int defWateringTime = 1;
+int defMinWateringGap = 5;
+int defMaxWateringGap = 10;
 int defLowCalValue = 250;
 int defHighCalValue = 775;
 
 
 //initialize wateringzones with
-WateringZone zoneOne = WateringZone(1, 11, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
-WateringZone zoneTwo = WateringZone(2, 10, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
-WateringZone zoneThree = WateringZone(3, 8, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
-WateringZone zoneFour = WateringZone(4, 7, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
-WateringZone zoneFive = WateringZone(5, 6, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
-WateringZone zoneSix = WateringZone(6, 5, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
-WateringZone zoneSeven = WateringZone(7, 4, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
+WateringZone zoneOne = WateringZone(1, 12, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
+WateringZone zoneTwo = WateringZone(2, 11, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
+WateringZone zoneThree = WateringZone(3, 10, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
+WateringZone zoneFour = WateringZone(4, 9, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
+WateringZone zoneFive = WateringZone(5, 8, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
+WateringZone zoneSix = WateringZone(6, 7, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
+WateringZone zoneSeven = WateringZone(7, 6, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
 
 
 
@@ -380,81 +432,117 @@ void setup() {  //code that only runs once
   telemetryNextSendTimeMs = 0;
 
   //initializing the digital pins used to control the relay
-  for (int i = 4; i < 13; i++) {
+  for (int i = 4; i < 12; i++) {
     pinMode(i, OUTPUT);
     digitalWrite(i, LOW);
+    Serial.println("pin initialized: " + String(i));
   }
+  //set up pin 13 to power sensors
+  pinMode(13, OUTPUT);
+  digitalWrite(13, HIGH);
 }
 /*
  * loop:
  * Check for connection and reconnect if necessary.
  * Send Telemetry and receive messages.
  */
+ int attemptCount = 0;
 void loop() {
-  // code that runs repeatedly until disconnected from power
-  int tempWaterLevel = readTankHeight();
+  // code that runs repeatedly  disconnected from power
+  tempWaterLevel = readTankHeight(); //variable used to detect changes in tanklevel
+  Serial.println("Temp Water Level: " + String(tempWaterLevel));
   if (!Serial) {  //reconnect to serial if disconnected
     Serial.begin(SERIAL_LOGGER_BAUD_RATE);
   }
 
   if (WiFi.status() != WL_CONNECTED) {  //tries to connect to the cloud if not connected
-    for (int i = 0; i < 7; i++) {
-      Serial.println(zoneArray[i].getZoneInfo());
+    if(attemptCount > 0){
+       for(int i = 0; i < 7; i++){
+       Serial.println(zoneArray[i].getZoneInfo());
+       }
     }
     connectToWiFi();
+    attemptCount += 1;
+    Serial.println("Attempt Count: " + String(attemptCount));
     if (WiFi.status() == WL_CONNECTED) {  // IF CONNECTION SUCCEEDS, BUT IT WAS DISCONNECTED AT SOME POINT, THIS INITIALIZES AZURE THINGS
       initializeAzureIoTHubClient();
       initializeMQTTClient();
       connectMQTTClientToAzureIoTHub();
     }
-  } else {                                                                           //if its already connected
-    if (millis() > telemetryNextSendTimeMs || abs(tankLevel - tempWaterLevel) > 10)  //if its been long enough since the last message was sent or the tank level has changed by 1cm
-    {
-      if (abs(tankLevel - tempWaterLevel) > 10) {
-        Serial.println("tank level changed");
+  } else {          //if its already connected
+      if (millis() > telemetryNextSendTimeMs || abs(zoneArray[0].getTankLevel() - tempWaterLevel) > 5)  //if its been long enough since the last message was sent or the tank level has changed by 5%
+      //  if(millis() > telemetryNextSendTimeMs)
+      {
+        if (abs(zoneArray[0].getTankLevel() - tempWaterLevel) > 5) {
+          Serial.println("temp level: " + String(tempWaterLevel)+ "; current tank level: " + String(zoneArray[0].getTankLevel())) ;
+        }
+        //Serial.println("time: " + String(millis()/1000) + "Tank level: " + String(tankLevel));
+        // Check for MQTT Client connection to Azure IoT hub. Reconnect if needed.
+        if (!mqttClient.connected()) {
+          connectMQTTClientToAzureIoTHub();
+        }
+        sendTelemetry();  //triggers telemetryPayload to be filled with zone info, then sends it
+        telemetryNextSendTimeMs = millis() + IOT_CONFIG_TELEMETRY_FREQUENCY_MS;
       }
-      //Serial.println("time: " + String(millis()/1000) + "Tank level: " + String(tankLevel));
-      // Check for MQTT Client connection to Azure IoT hub. Reconnect if needed.
-      if (!mqttClient.connected()) {
-        connectMQTTClientToAzureIoTHub();
-      }
-      sendTelemetry();  //triggers telemetryPayload to be filled with zone info, then sends it
-      telemetryNextSendTimeMs = millis() + IOT_CONFIG_TELEMETRY_FREQUENCY_MS;
-    }
 
     // MQTT loop must be called to process Telemetry and Cloud-to-Device (C2D) messages.
     mqttClient.poll();
   }
-  //new code as of 11.15, only allows one solenoid to open at a time
-  tankLevel = readTankHeight();  //updates tank level adjusting for height of sensor
-  //Serial.println("Tank level: " + String(tankLevel) + "; Time: " + String(millis()/1000));
-
-  for (int i = 0; i++; i < 7) {
+  
+  for (int i = 0; i < 7; i++) { //update sensor values in case a zone is already active
     zoneArray[i].readMoisturePin();
     zoneArray[i].setTankLevel();
   }
-  if (tankLevel < tankThreshold) {  //read all moisture pins if tank is too low
-    for (int i = 0; i < 7; i++) {
-      zoneArray[i].readMoisturePin();
+
+  for(int i = 0; i < 7; i++){ //check each zone
+    if(zoneArray[i].getIsWatering()){ //check if its been watering long enough
+      zoneArray[i].checkAndWater();
     }
-  } else {
-    //checks if a zone is already watering or not
-    for (int i = 0; i < 7; i++) {  //if any of the zones are already running
-      if (zoneArray[i].getIsWatering()) {
-        noZonesActive = false;
-        zoneArray[i].checkAndWater();  //need to check if its been long enough if the pump is currently running
-        i = 9;                         //break because we already know there is a petal running
-      }
-    }
-    if (noZonesActive) {  // only runs if no zones are currently being watered
-      for (int j = 0; j < 7; j++) {
-        zoneArray[j].checkAndWater();        //check to see if its time to water
-        if (zoneArray[j].getIsWatering()) {  //if this causes it to start watering, no need to check other zones
-          j = 9;                             //break because we already checked the zone and its now watering
-        }
-      }
+
+    if(noZonesActive){ //check if the zone should be watered
+      zoneArray[i].checkAndWater();
     }
   }
+  // //this loop checks if any zones are active. 
+  // noZonesActive = true;
+  // for(int i = 0; i < 7; i++){ /determine whether or not a zone is currently being watered
+  //   if(zoneArray[i].getIsWatering()){
+  //     noZonesActive = false;
+  //     zoneArray[i].checkAndWater();
+  //     break; //loop, run check and water on the still active zone, no need to check other zones
+  //   }
+  // }
+
+  //   for(int i = 0; i < 7; i++){ //run the check and water function on all of the zones<7
+  //     if(noZonesActive){
+  //       zoneArray[i].checkAndWater();
+  //       if(zoneArray[i].getIsWatering()){
+  //         noZonesActive = false;
+  //       }
+  //   }
+ // }
+  // // if (tankLevel < tankThreshold) {  //read all moisture pins if tank is too low
+  // //   for (int i = 0; i < 7; i++) {
+  // //     zoneArray[i].readMoisturePin();
+  // //   }
+  // } else {
+  //   //checks if a zone is already watering or not
+  //   for (int i = 0; i < 7; i++) {  //if any of the zones are already running
+  //     if (zoneArray[i].getIsWatering()) {
+  //       noZonesActive = false;
+  //       zoneArray[i].checkAndWater();  //need to check if its been long enough if the pump is currently running
+  //       i = 9;                         //break because we already know there is a petal running
+  //     }
+  //   }
+  //   if (noZonesActive) {  // only runs if no zones are currently being watered
+  //     for (int j = 0; j < 7; j++) {
+  //       zoneArray[j].checkAndWater();        //check to see if its time to water
+  //       if (zoneArray[j].getIsWatering()) {  //if this causes it to start watering, no need to check other zones
+  //         j = 9;                             //break because we already checked the zone and its now watering
+  //       }
+  //     }
+  //  }
+
 }
 
 
@@ -701,14 +789,15 @@ static void generateMQTTPassword() {
 //  *    3. Encode the signed signature.
 //  *//
 static void generateSASBase64EncodedSignedSignature(
-  uint8_t const* sasSignature, size_t const sasSignatureSize,
-  uint8_t* encodedSignedSignature, size_t encodedSignedSignatureSize,
-  size_t* encodedSignedSignatureLength) {
+    uint8_t const* sasSignature, size_t const sasSignatureSize,
+    uint8_t* encodedSignedSignature, size_t encodedSignedSignatureSize,
+    size_t* encodedSignedSignatureLength) 
+{
   int result;
-  unsigned char sasDecodedKey[BUFFER_LENGTH_SAS] = { 0 };
+  unsigned char sasDecodedKey[BUFFER_LENGTH_SAS] = {0};
   az_span sasDecodedKeySpan = AZ_SPAN_FROM_BUFFER(sasDecodedKey);
   int32_t sasDecodedKeyLength = 0;
-  uint8_t sasHMAC256SignedSignature[BUFFER_LENGTH_SAS] = { 0 };
+  uint8_t sasHMAC256SignedSignature[BUFFER_LENGTH_SAS] = {0};
 
   // Decode the SAS base64 encoded device key to use for HMAC signing.
   az_span configDeviceKeySpan = az_span_create((uint8_t*)IOT_CONFIG_DEVICE_KEY, sizeof(IOT_CONFIG_DEVICE_KEY) - 1);
@@ -718,7 +807,7 @@ static void generateSASBase64EncodedSignedSignature(
   // HMAC-SHA256 sign the signature with the decoded device key.
   result = ECCX08.begin();
   EXIT_LOOP(!result, "Failed to communicate with ATECC608.");
-
+  
   result = ECCX08.nonce(sasDecodedKey);
   EXIT_LOOP(!result, "Failed to do nonce.");
 
@@ -734,9 +823,10 @@ static void generateSASBase64EncodedSignedSignature(
   // Base64 encode the result of the HMAC signing.
   az_span signedSignatureSpan = az_span_create(sasHMAC256SignedSignature, sizeof(sasHMAC256SignedSignature));
   az_span encodedSignedSignatureSpan = az_span_create(encodedSignedSignature, encodedSignedSignatureSize);
-  result = az_base64_encode(encodedSignedSignatureSpan, signedSignatureSpan, (int32_t*)encodedSignedSignatureLength);
+  result = az_base64_encode(encodedSignedSignatureSpan, signedSignatureSpan, (int32_t*) encodedSignedSignatureLength);
   EXIT_LOOP(result != AZ_OK, "az_base64_encode failed. Return code: " + result);
 }
+
 
 /*
  * getSASTokenExpirationTime:
