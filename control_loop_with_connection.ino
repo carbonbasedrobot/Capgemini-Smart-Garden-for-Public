@@ -156,6 +156,7 @@ UltraSonicDistanceSensor distanceSensor(3, 2);  // Initialize sensor that uses d
 double tempWaterLevel;
 double mappedValue;
 double sensorReading;
+double minDist = 3.65;
 
 double readTankHeight() { 
   delay(50);
@@ -164,13 +165,11 @@ double readTankHeight() {
   if(sensorReading > tankSensorHeight){
     sensorReading = tankSensorHeight; //deal with overshooting readings
   }
-    if(sensorReading < 3){
-    sensorReading = 3; //deal with undershooting readings
+    if(sensorReading < minDist){
+    sensorReading = minDist; //deal with undershooting readings
   }
- // sensorReading = sensorReading - 3; //shift range of values from 11.64 to 3 into 8.64 when empty and 0 when full
-
- // sensorReading = (tankSensorHeight-3-sensorReading)/(tankSensorHeight-3)*100; //convert 8.64 when empty to 0% and and 0 when empty to 100%
-
+  sensorReading = sensorReading - minDist; //shift range of values from 11.64 to 3 into 8.64 when empty and 0 when full
+  sensorReading = (tankSensorHeight-minDist-sensorReading)/(tankSensorHeight-minDist)*100; //convert 8.64 when empty to 0% and and 0 when empty to 100%
   return sensorReading;
 }
 
@@ -199,6 +198,12 @@ public:
 
   // returns a moisture value from 0-100 that is calibrated according to the zones moisture sensor
   void readMoisturePin() {  //Can't store A4-A7 as a variable, so its necessary to analogRead by zone number
+    //currently A4-A7, when wired to a moisture sensor will disrupt the communication abilities of a chip, ECCx08, preventing azure mqtt communication-Alex 1.23
+    //Find a way to only power moisture sensors through digital pins, and turn off sensors when not being read
+    //ie
+    //turn on digital pin
+    //take reading
+    //turn off pin
     int moistureReading;
     if (_zoneNumber == 1) {
       moistureReading = analogRead(A0);
@@ -222,12 +227,12 @@ public:
     if(moistureReading > _highCalValue){
       moistureReading = _highCalValue;
     }
-    //_moistureValue = map(moistureReading, _lowCalValue, _highCalValue, 100, 0);
-    _moistureValue = moistureReading;
+    _moistureValue = map(moistureReading, _lowCalValue, _highCalValue, 100, 0);
+    //_moistureValue = moistureReading;
             // Moisture Sensor Testing 1/17
         // Pins: Wet   Dry
         // A0:   120   694
-        // A1:   not working
+        // A1:   450 working
         // A2:   400   880
         // A3:   not working
         // A4:   not working
@@ -395,23 +400,23 @@ private:
 };
 
 //default values
-bool defInstallStatus = 0;  //when the arduino starts up, don't want to start watering potentiall empty pods
+bool defInstallStatus = 1;  //when the arduino starts up, don't want to start watering potentiall empty pods
 int defMoistureThreshold = 35;
 int defWateringTime = 1;
-int defMinWateringGap = 5;
-int defMaxWateringGap = 10;
-int defLowCalValue = 250;
-int defHighCalValue = 775;
+int defMinWateringGap = 259200; //3days in seconds
+int defMaxWateringGap = 604800; //7 days in seconds
+int defLowCalValue = 200;
+int defHighCalValue = 800;
 
 
 //initialize wateringzones with
-WateringZone zoneOne = WateringZone(1, 12, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
-WateringZone zoneTwo = WateringZone(2, 11, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
-WateringZone zoneThree = WateringZone(3, 10, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
+WateringZone zoneOne = WateringZone(1, 12, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap  , defMaxWateringGap, 140, 700);
+WateringZone zoneTwo = WateringZone(2, 11, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, 400, defHighCalValue);
+WateringZone zoneThree = WateringZone(3, 10, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, 400, 880);
 WateringZone zoneFour = WateringZone(4, 9, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
 WateringZone zoneFive = WateringZone(5, 8, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
-WateringZone zoneSix = WateringZone(6, 7, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
-WateringZone zoneSeven = WateringZone(7, 6, defInstallStatus, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
+WateringZone zoneSix = WateringZone(6, 7, 0, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
+WateringZone zoneSeven = WateringZone(7, 6, 0, defMoistureThreshold, defWateringTime, defMinWateringGap, defMaxWateringGap, defLowCalValue, defHighCalValue);
 
 
 
